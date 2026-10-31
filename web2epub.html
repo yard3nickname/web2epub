@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web to EPUB</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5d6673; --border: #d6dbe1;
+    --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --err: #cf222e; --log-bg: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --card: #171b21; --text: #e6e9ee; --muted: #9aa4b1; --border: #2c333c;
+      --accent: #4c8dff; --accent-text: #0b0e12; --ok: #3fb950; --err: #ff7b72; --log-bg: #11151a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --card: #171b21; --text: #e6e9ee; --muted: #9aa4b1; --border: #2c333c;
+    --accent: #4c8dff; --accent-text: #0b0e12; --ok: #3fb950; --err: #ff7b72; --log-bg: #11151a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; }
+  input[type="url"] { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); font: inherit; }
+  input[type="url"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text);
+    font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: .55; cursor: default; }
+  .opts { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .opts input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 13px; }
+  .images { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid var(--border); }
+  .images .label { font-weight: 600; }
+  .images select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+    color: var(--text); font: inherit; }
+  .images input[type="range"] { width: 140px; accent-color: var(--accent); }
+  .images .q { display: flex; align-items: center; gap: 8px; }
+  .images output { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 2ch; }
+  .images [aria-disabled="true"] { opacity: .5; }
+  .progress { margin-top: 20px; display: none; }
+  .progress.on { display: block; }
+  .bar { height: 6px; background: var(--log-bg); border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .pct { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 8px; }
+  .pct.ok { color: var(--ok); } .pct.err { color: var(--err); }
+  pre.log { margin: 12px 0 0; max-height: 320px; overflow: auto; background: var(--log-bg); border-radius: 8px;
+    padding: 10px 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+  .note { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  @media (max-width: 480px) { .row { flex-direction: column; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Web to EPUB</h1>
+  <p class="sub">Paste a page address and download it as an e-book.</p>
+
+  <form class="card" id="form">
+    <label class="field" for="url">Page URL</label>
+    <div class="row">
+      <input id="url" type="url" required placeholder="https://…" autocomplete="url" spellcheck="false">
+      <button id="go" type="submit">Download EPUB</button>
+    </div>
+    <div class="opts">
+      <input id="rtl" type="checkbox">
+      <label for="rtl">Hebrew (RTL) · עברית</label>
+      <span class="hint" id="rtlHint">· turns on automatically for Hebrew pages</span>
+    </div>
+    <div class="opts">
+      <input id="headless" type="checkbox">
+      <label for="headless">Render with JavaScript (headless browser)</label>
+      <span class="hint" id="headlessHint"></span>
+    </div>
+    <div class="images">
+      <span class="label">Images</span>
+      <label>Max size
+        <select id="maxSize">
+          <option value="800">800 px</option>
+          <option value="1200">1200 px</option>
+          <option value="1600" selected>1600 px</option>
+          <option value="2000">2000 px</option>
+          <option value="2400">2400 px</option>
+          <option value="0">Original (no compression)</option>
+        </select>
+      </label>
+      <span class="q" id="qualityRow">
+        <label for="quality">Quality</label>
+        <input id="quality" type="range" min="30" max="95" step="5" value="75">
+        <output id="qualityOut" for="quality">75</output>
+      </span>
+      <span class="hint" id="imagesHint">· smaller size and lower quality make a smaller book</span>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="pct" id="pct">progression: 0.00 %</div>
+      <pre class="log" id="log"></pre>
+    </div>
+  </form>
+
+  <p class="note" id="note">Runs with <code>web2epub-server.py</code>, which downloads pages and images for this page.</p>
+</main>
+
+<script>window.__w2eNoUi = true;</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="web2epub.user.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const form = $('form'), urlBox = $('url'), go = $('go'), rtlBox = $('rtl');
+  const progress = $('progress'), bar = $('bar'), pct = $('pct'), log = $('log'), headlessBox = $('headless');
+  let rtlTouched = false;
+
+  // What the server can do: headless rendering needs Playwright in the server's venv.
+  const maxSize = $('maxSize'), quality = $('quality'), qualityOut = $('qualityOut');
+  let canCompress = true;
+  const store = {
+    get(k) { try { return localStorage.getItem('w2e.' + k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('w2e.' + k, v); } catch { /* private mode */ } },
+  };
+  if (store.get('max') !== null && [...maxSize.options].some((o) => o.value === store.get('max'))) maxSize.value = store.get('max');
+  if (store.get('q') !== null) quality.value = store.get('q');
+  const syncImages = () => {
+    qualityOut.value = quality.value;
+    const off = maxSize.value === '0' || !canCompress;
+    quality.disabled = off;
+    $('qualityRow').setAttribute('aria-disabled', String(off));
+    store.set('max', maxSize.value);
+    store.set('q', quality.value);
+  };
+  maxSize.addEventListener('change', syncImages);
+  quality.addEventListener('input', syncImages);
+  syncImages();
+  // Query string for the server's image settings.
+  const imageParams = () => (canCompress ? `&max=${maxSize.value}&q=${quality.value}` : '&max=0');
+
+  fetch('/status').then((r) => r.json()).then((st) => {
+    canCompress = st.compress;
+    if (!st.compress) {
+      maxSize.disabled = true;
+      $('imagesHint').textContent = '· compression not available: start the server with .venv/bin/python';
+    }
+    syncImages();
+    headlessBox.checked = st.headless;
+    headlessBox.disabled = !st.headless;
+    $('headlessHint').textContent = st.headless
+      ? '· slower, but works on pages built by JavaScript'
+      : '· not available: start the server with .venv/bin/python';
+  }).catch(() => { headlessBox.disabled = true; });
+  rtlBox.addEventListener('change', () => { rtlTouched = true; $('rtlHint').hidden = true; });
+
+  if (location.protocol === 'file:') {
+    $('note').innerHTML = 'Open this page through the server: run <code>python3 web2epub-server.py</code> and go to ' +
+      '<code>http://127.0.0.1:8777</code>. Opened as a file, it can\'t download other sites.';
+  }
+
+  async function proxy(url, image) {
+    const res = await fetch('/proxy?url=' + encodeURIComponent(url) + (image ? '&image=1' + imageParams() : ''));
+    if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 120)} (${url})`);
+    return res;
+  }
+
+  const human = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' KB');
+
+  // Headless mode: the server opens the page in Chromium, runs the same pipeline there and streams progress.
+  function renderHeadless(url, addLog, setProgress) {
+    const rtl = rtlTouched ? (rtlBox.checked ? '1' : '0') : 'auto';
+    const events = new EventSource(`/render?url=${encodeURIComponent(url)}&rtl=${rtl}${imageParams()}`);
+    const data = (e) => JSON.parse(e.data);
+    return new Promise((resolve, reject) => {
+      events.addEventListener('log', (e) => addLog(data(e)));
+      events.addEventListener('progress', (e) => setProgress(data(e)));
+      events.addEventListener('rtl', (e) => {
+        rtlBox.checked = data(e);
+        if (rtlBox.checked) addLog('Hebrew page detected: RTL on');
+      });
+      events.addEventListener('done', (e) => {
+        events.close();
+        const d = data(e);
+        const a = document.createElement('a');
+        a.href = '/result/' + d.id;
+        a.download = d.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        addLog(`\nSaved "${d.name}" (${d.chapters} chapters, ${d.images} images, ${(d.size / 1e6).toFixed(1)} MB)`);
+        resolve();
+      });
+      events.addEventListener('fail', (e) => { events.close(); reject(new Error(data(e))); });
+      events.onerror = () => { events.close(); reject(new Error('Lost the connection to the server')); };
+    });
+  }
+
+  // React/Next.js stream the page: content arrives in <div hidden id="S:n"> and inline scripts move it into
+  // place ($RC replaces a loading fallback, $RS fills a placeholder). Scripts don't run here, so do it ourselves.
+  function resolveStreaming(html) {
+    if (!/<div hidden id="S:/.test(html)) return html;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const code = Array.from(doc.scripts).map((s) => s.textContent).join('\n');
+    const pairs = [];
+    for (const [, seg, ph] of code.matchAll(/\$RS\("([^"]+)","([^"]+)"\)/g)) pairs.push(['RS', seg, ph]);
+    for (const [, b, s] of code.matchAll(/\$RC\("([^"]+)","([^"]+)"\)/g)) pairs.push(['RC', b, s]);
+    if (!pairs.some((p) => p[0] === 'RC')) {
+      for (const div of doc.querySelectorAll('div[hidden][id^="S:"]')) pairs.push(['RC', 'B:' + div.id.slice(2), div.id]);
+    }
+    for (const [kind, a, b] of pairs) {
+      if (kind === 'RS') { // segment a fills placeholder b
+        const seg = doc.getElementById(a), ph = doc.getElementById(b);
+        if (seg && ph) { ph.replaceWith(...seg.childNodes); seg.remove(); }
+        continue;
+      }
+      const tpl = doc.getElementById(a), content = doc.getElementById(b); // boundary a gets content b
+      if (!tpl || !content) continue;
+      for (let n = tpl.nextSibling; n && !(n.nodeType === 8 && n.data === '/$');) { const next = n.nextSibling; n.remove(); n = next; }
+      tpl.replaceWith(...content.childNodes);
+      content.remove();
+    }
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
+  // Renders the page in a hidden frame with its CSS but without its scripts, so layout-based steps work.
+  function renderInFrame(html, baseUrl) {
+    const clean = resolveStreaming(html)
+      .replace(/<meta[^>]+http-equiv=["']?refresh[^>]*>/gi, '')
+      .replace(/<base\b[^>]*>/gi, '');
+    const withBase = /<head[^>]*>/i.test(clean)
+      ? clean.replace(/<head[^>]*>/i, (m) => `${m}<base href="${baseUrl.replace(/"/g, '&quot;')}">`)
+      : `<base href="${baseUrl.replace(/"/g, '&quot;')}">` + clean;
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin'); // no scripts: no ads, popups or redirects
+    frame.style.cssText = 'position:fixed;left:-20000px;top:0;width:1280px;height:900px;border:0;';
+    return new Promise((resolve) => {
+      const done = () => resolve(frame);
+      frame.addEventListener('load', done, { once: true });
+      setTimeout(done, 20000); // don't wait forever for slow images
+      frame.srcdoc = withBase;
+      document.body.appendChild(frame);
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    let url;
+    try { url = new URL(urlBox.value.trim()).href; } catch { urlBox.focus(); return; }
+    go.disabled = true;
+    progress.classList.add('on');
+    log.textContent = '';
+    pct.className = 'pct';
+    pct.textContent = 'progression: 0.00 %';
+    bar.style.width = '0';
+    const addLog = (l) => { log.textContent += l + '\n'; log.scrollTop = log.scrollHeight; };
+    const setProgress = (p) => { pct.textContent = `progression: ${p.toFixed(2)} %`; bar.style.width = p + '%'; };
+    let frame;
+    try {
+      if (headlessBox.checked) {
+        await renderHeadless(url, addLog, setProgress);
+        pct.classList.add('ok');
+        return;
+      }
+      addLog('Downloading page…');
+      const res = await proxy(url);
+      const finalUrl = res.headers.get('X-Final-Url') || url;
+      const html = await res.text();
+      addLog('Rendering page…');
+      frame = await renderInFrame(html, finalUrl);
+      const win = frame.contentWindow;
+
+      if (!rtlTouched) {
+        const root = win.document.documentElement;
+        const lang = (root.lang || '').toLowerCase();
+        rtlBox.checked = lang.startsWith('he') || lang.startsWith('iw') || root.dir === 'rtl' ||
+          win.document.body?.dir === 'rtl' || /[֐-׿]/.test((win.document.title || '') + (win.document.body?.innerText || '').slice(0, 2000));
+        if (rtlBox.checked) addLog('Hebrew page detected: RTL on');
+      }
+
+      const totals = { before: 0, after: 0 };
+      if (canCompress) addLog('Compressing images: ' + (maxSize.value === '0' ? 'off (original files)' : `max ${maxSize.value}px, quality ${quality.value}`));
+      const ctx = await window.web2epub.run({
+        rtl: rtlBox.checked,
+        fullSizeMax: canCompress ? Infinity : undefined, // the server sizes images; without it, shrink in the browser
+        win,
+        url: finalUrl,
+        originalHtml: html,
+        fetchBinary: async (u) => {
+          const r = await proxy(u, true); // compressed by the server when it can
+          const data = await r.arrayBuffer();
+          totals.before += +(r.headers.get('X-Original-Size') || data.byteLength);
+          totals.after += data.byteLength;
+          return { data, type: r.headers.get('Content-Type') };
+        },
+        onLog: addLog,
+        onProgress: setProgress,
+      });
+      pct.classList.add('ok');
+      if (totals.before) addLog(`Images: ${human(totals.before)} → ${human(totals.after)} (−${Math.round(100 - totals.after * 100 / totals.before)}%)`);
+      addLog(`\nSaved "${ctx.fileName}" (${ctx.chapters.length} chapters, ${ctx.images.length} images, ${human(ctx.fileSize)})`);
+    } catch (err) {
+      console.error(err);
+      pct.classList.add('err');
+      pct.textContent = 'Error: ' + err.message;
+    } finally {
+      frame?.remove();
+      go.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
